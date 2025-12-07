@@ -1,0 +1,416 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Execution role for organization Config rules lambda function'
+Parameters:
+  DynamoDBTableName:
+    Type: String
+    Description: Name of DynamoDB Table
+  DynamoDBAccountID:
+    Type: String
+    Description: Account ID of DynamoDB Table
+  RemediationRoleName:
+    Type: String
+    Default: ConfigRemediationRole
+    Description: Name of the remediation role to create
+  TagEvaluationLambdaExecutionIAMRoleArn:
+    Type: String
+    Description: Evaluation Lambda Execution IAM Role ARN
+    Default: arn:aws:iam::<LAMBDA_ACCOUNT_ID>:role/tags_evaluator_lambda_role
+Resources:
+  ConfigOrgRuleExecutionRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: ConfigEvaluationRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub '${TagEvaluationLambdaExecutionIAMRoleArn}'
+            Action: 'sts:AssumeRole'
+        
+      Policies:
+        - PolicyName: ConfigEvaluationPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: 'config:PutEvaluations'
+                Resource: '*'
+  ConfigRemediationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref RemediationRoleName
+      Description: Role for Config to trigger centralized SSM automation
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: 
+                - ssm.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonSSMAutomationRole
+      Policies:
+        - PolicyName: ResourceDiscoveryAndTagData
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement: 
+            - Sid: ResourceExplorerAccess
+              Effect: Allow
+              Action:
+                - 'config:SelectResourceConfig'
+              Resource: '*'
+            
+            # DynamoDB - for reading tag requirements
+            - Sid: DynamoDBReadAccess
+              Effect: Allow
+              Action:
+                - 'dynamodb:GetItem'
+                - 'dynamodb:DescribeTable'
+              Resource: !Sub 'arn:aws:dynamodb:me-central-1:${DynamoDBAccountID}:table/${DynamoDBTableName}'
+
+            - Sid: WriteLogs
+              Effect: Allow
+              Action:
+                - 'logs:CreateLogGroup'
+                - 'logs:CreateLogStream'
+                - 'logs:DescribeLogGroups'
+                - 'logs:DescribeLogStreams'
+                - 'logs:PutLogEvents'
+              Resource: "*"
+        - PolicyName: tagging-access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: TaggingAccess
+                Effect: Allow
+                Action:
+                  - 'tag:GetResources'
+                  - 'tag:TagResources'
+                Resource: '*'
+                
+              # EC2 and VPC Resources - Covers all EC2 resource types
+              - Sid: EC2TaggingPermissions
+                Effect: Allow
+                Action:
+                  # Tagging
+                  - 'ec2:CreateTags'
+                  # Describe permissions for resource discovery and validation
+                  - 'ec2:DescribeTags'
+                  - 'ec2:DescribeInstances'
+                  - 'ec2:DescribeVolumes'
+                  - 'ec2:DescribeSnapshots'
+                  - 'ec2:DescribeSpotFleetRequests'
+                  - 'ec2:DescribeHosts'
+                  - 'ec2:DescribeCapacityReservations'
+                  - 'ec2:DescribeVpcs'
+                  - 'ec2:DescribeSubnets'
+                  - 'ec2:DescribeRouteTables'
+                  - 'ec2:DescribeInternetGateways'
+                  - 'ec2:DescribeEgressOnlyInternetGateways'
+                  - 'ec2:DescribeVpcEndpoints'
+                  - 'ec2:DescribeVpcPeeringConnections'
+                  - 'ec2:DescribeTransitGateways'
+                  - 'ec2:DescribeVpnConnections'
+                  - 'ec2:DescribeVpnGateways'
+                  - 'ec2:DescribeNetworkInterfaces'
+                  - 'ec2:DescribeAddresses'
+                  - 'ec2:DescribeNatGateways'
+                  - 'ec2:DescribeSecurityGroups'
+                  - 'ec2:DescribeFlowLogs'
+                  - 'ec2:DescribeLaunchTemplates'
+                Resource: '*'
+              
+              # S3 Buckets
+              - Sid: S3TaggingPermissions
+                Effect: Allow
+                Action:
+                  - 's3:PutBucketTagging'
+                  - 's3:GetBucketTagging'
+                  - 's3:PutObjectTagging'
+                  - 's3:GetObjectTagging'
+                Resource: '*'
+              
+              # RDS Resources - Including snapshots
+              - Sid: RDSTaggingPermissions
+                Effect: Allow
+                Action:
+                  - 'rds:AddTagsToResource'
+                  - 'rds:ListTagsForResource'
+                  - 'rds:DescribeDBInstances'
+                  - 'rds:DescribeDBClusters'
+                  - 'rds:DescribeDBSnapshots'
+                  - 'rds:DescribeDBClusterSnapshots'
+                Resource: '*'
+              
+              # Lambda Functions
+              - Sid: LambdaTaggingPermissions
+                Effect: Allow
+                Action:
+                  - 'lambda:TagResource'
+                  - 'lambda:ListTags'
+                Resource: '*'
+              
+              # DynamoDB Tables
+              - Sid: DynamoDBTaggingPermissions
+                Effect: Allow
+                Action:
+                  - 'dynamodb:TagResource'
+                  - 'dynamodb:ListTagsOfResource'
+                Resource: '*'
+              
+              # ECS Resources
+              - Sid: ECSTaggingPermissions
+                Effect: Allow
+                Action:
+                  - 'ecs:TagResource'
+                  - 'ecs:ListTagsForResource'
+                Resource: '*'
+              
+              # EKS Clusters
+              - Sid: EKSTaggingPermissions
+                Effect: Allow
+                Action:
+                  - 'eks:TagResource'
+                  - 'eks:ListTagsForResource'
+                Resource: '*'
+              
+              # SNS Topics
+              - Sid: SNSTaggingPermissions
+                Effect: Allow
+                Action:
+                  - 'sns:TagResource'
+                  - 'sns:ListTagsForResource'
+                Resource: '*'
+              
+              # SQS Queues
+              - Sid: SQSTaggingPermissions
+                Effect: Allow
+                Action:
+                  - 'sqs:TagQueue'
+                  - 'sqs:ListQueueTags'
+                Resource: '*'
+              
+              # CloudWatch Resources
+              - Sid: CloudWatchTaggingPermissions
+                Effect: Allow
+                Action:
+                  - 'cloudwatch:TagResource'
+                  - 'cloudwatch:ListTagsForResource'
+                  - 'logs:TagResource'
+                  - 'logs:TagLogGroup'
+                  - 'logs:ListTagsForResource'
+                  - 'logs:ListTagsLogGroup'
+                Resource: '*'
+              
+              # Elastic Load Balancing - Including Classic LB
+              - Sid: ELBTaggingPermissions
+                Effect: Allow
+                Action:
+                  - 'elasticloadbalancing:AddTags'
+                  - 'elasticloadbalancing:DescribeTags'
+                  - 'elasticloadbalancing:DescribeLoadBalancers'
+                  - 'elasticloadbalancing:DescribeTargetGroups'
+                Resource: '*'
+              
+              # Auto Scaling
+              - Sid: AutoScalingTaggingPermissions
+                Effect: Allow
+                Action:
+                  - 'autoscaling:CreateOrUpdateTags'
+                  - 'autoscaling:DescribeTags'
+                  - 'autoscaling:DescribeAutoScalingGroups'
+                Resource: '*'
+              
+              # CloudFormation Stacks
+              - Sid: CloudFormationTaggingPermissions
+                Effect: Allow
+                Action:
+                  - 'cloudformation:TagResource'
+                  - 'cloudformation:UntagResource'
+                  - 'cloudformation:ListStacks'
+                Resource: '*'
+              
+              # Secrets Manager
+              - Sid: SecretsManagerTaggingPermissions
+                Effect: Allow
+                Action:
+                  - 'secretsmanager:TagResource'
+                  - 'secretsmanager:DescribeSecret'
+                Resource: '*'
+              
+              # Systems Manager
+              - Sid: SSMTaggingPermissions
+                Effect: Allow
+                Action:
+                  - 'ssm:AddTagsToResource'
+                  - 'ssm:RemoveTagsFromResource'
+                  - 'ssm:ListTagsForResource'
+                Resource: '*'
+              
+              # IAM Resources
+              - Sid: IAMTaggingPermissions
+                Effect: Allow
+                Action:
+                  - 'iam:TagRole'
+                  - 'iam:TagUser'
+                  - 'iam:TagPolicy'
+                  - 'iam:ListRoleTags'
+                  - 'iam:ListUserTags'
+                  - 'iam:ListPolicyTags'
+                Resource: '*'
+              
+              # ElastiCache
+              - Sid: ElastiCacheTaggingPermissions
+                Effect: Allow
+                Action:
+                  - 'elasticache:AddTagsToResource'
+                  - 'elasticache:ListTagsForResource'
+                Resource: '*'
+              
+              # Redshift
+              - Sid: RedshiftTaggingPermissions
+                Effect: Allow
+                Action:
+                  - 'redshift:CreateTags'
+                  - 'redshift:DescribeTags'
+                Resource: '*'
+              
+              # EFS File Systems
+              - Sid: EFSTaggingPermissions
+                Effect: Allow
+                Action:
+                  - 'elasticfilesystem:TagResource'
+                  - 'elasticfilesystem:ListTagsForResource'
+                Resource: '*'
+              
+              # ECR Repositories
+              - Sid: ECRTaggingPermissions
+                Effect: Allow
+                Action:
+                  - 'ecr:TagResource'
+                  - 'ecr:ListTagsForResource'
+                Resource: '*'
+              
+              # CloudTrail
+              - Sid: CloudTrailTaggingPermissions
+                Effect: Allow
+                Action:
+                  - 'cloudtrail:AddTags'
+                  - 'cloudtrail:ListTags'
+                Resource: '*'
+              
+              # Kinesis
+              - Sid: KinesisTaggingPermissions
+                Effect: Allow
+                Action:
+                  - 'kinesis:AddTagsToStream'
+                  - 'kinesis:ListTagsForStream'
+                  - 'firehose:TagDeliveryStream'
+                  - 'firehose:ListTagsForDeliveryStream'
+                Resource: '*'
+              
+              # API Gateway
+              - Sid: APIGatewayTaggingPermissions
+                Effect: Allow
+                Action:
+                  - 'apigateway:TagResource'
+                  - 'apigateway:GET'
+                Resource: '*'
+              
+              # Step Functions
+              - Sid: StepFunctionsTaggingPermissions
+                Effect: Allow
+                Action:
+                  - 'states:TagResource'
+                  - 'states:ListTagsForResource'
+                Resource: '*'
+              
+              # EventBridge
+              - Sid: EventBridgeTaggingPermissions
+                Effect: Allow
+                Action:
+                  - 'events:TagResource'
+                  - 'events:ListTagsForResource'
+                Resource: '*'
+              
+              # Backup
+              - Sid: BackupTaggingPermissions
+                Effect: Allow
+                Action:
+                  - 'backup:TagResource'
+                  - 'backup:ListTags'
+                Resource: '*'
+              
+              # Glue
+              - Sid: GlueTaggingPermissions
+                Effect: Allow
+                Action:
+                  - 'glue:TagResource'
+                  - 'glue:GetTags'
+                Resource: '*'
+              
+              # CodeBuild
+              - Sid: CodeBuildTaggingPermissions
+                Effect: Allow
+                Action:
+                  - 'codebuild:UpdateProject'
+                Resource: '*'
+              
+              # CodePipeline
+              - Sid: CodePipelineTaggingPermissions
+                Effect: Allow
+                Action:
+                  - 'codepipeline:TagResource'
+                  - 'codepipeline:ListTagsForResource'
+                Resource: '*'
+              
+              # ACM Certificates
+              - Sid: ACMTaggingPermissions
+                Effect: Allow
+                Action:
+                  - 'acm:AddTagsToCertificate'
+                  - 'acm:ListTagsForCertificate'
+                Resource: '*'
+              
+              # Resource Groups
+              - Sid: ResourceGroupsTaggingPermissions
+                Effect: Allow
+                Action:
+                  - 'tag:GetResources'
+                  - 'tag:GetTagKeys'
+                  - 'tag:GetTagValues'
+                  - 'tag:TagResources'
+                Resource: '*'
+              
+              # Route53
+              - Sid: Route53TaggingPermissions
+                Effect: Allow
+                Action:
+                  - 'route53:ChangeTagsForResource'
+                  - 'route53:ListTagsForResource'
+                  - 'route53:ListTagsForResources'
+                Resource: '*'
+              
+              # WorkSpaces
+              - Sid: WorkSpacesTaggingPermissions
+                Effect: Allow
+                Action:
+                  - 'workspaces:CreateTags'
+                  - 'workspaces:DescribeTags'
+                Resource: '*'
+              
+              # Organizations
+              - Sid: OrganizationsTaggingPermissions
+                Effect: Allow
+                Action:
+                  - 'organizations:TagResource'
+                  - 'organizations:ListTagsForResource'
+                Resource: '*'
+              
+
+Outputs:
+  RoleArn:
+    Description: 'ARN of the execution role'
+    Value: !GetAtt ConfigOrgRuleExecutionRole.Arn

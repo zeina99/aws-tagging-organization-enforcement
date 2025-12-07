@@ -1,0 +1,196 @@
+---
+schemaVersion: '0.3'
+description: "Remediate missing tags and tags with incorrect values by executing Python script directly"
+
+parameters:
+  AutomationAssumeRole:
+    type: String
+    description: "(Required) The ARN of the IAM role that allows Automation to perform actions."
+  ResourceId:
+    type: String
+    description: "ID of the non-compliant resource"
+  DynamoDBTableArn:
+    type: String
+    description: "ARN of the DynamoDB table containing tag requirements"
+  AccountIdKey:
+    type: String
+    description: "DynamoDB partition key name for account ID"
+    
+
+assumeRole: "{{ AutomationAssumeRole }}"
+
+mainSteps:
+  - name: remediateTags
+    action: 'aws:executeScript'
+    inputs:
+      Runtime: python3.11
+      Handler: remediate_tags
+      InputPayload:
+        resource_id: "{{ ResourceId }}"
+        account_id: "{{ global:ACCOUNT_ID }}"
+        dynamodb_table_arn: "{{ DynamoDBTableArn }}"
+        account_id_key: "{{ AccountIdKey }}"
+        
+      Script: |
+        import boto3
+        import json
+        
+        def remediate_tags(events, context):
+            """Main remediation function"""
+            resource_id = events['resource_id']
+            account_id = events['account_id']
+            ddb_table_arn = events['dynamodb_table_arn']
+            account_id_key = events['account_id_key']
+            
+            
+            print(f"Processing resource_id: {resource_id} in account: {account_id}")
+            
+            # Create clients using the SSM automation role (no role assumption needed)
+            session = boto3.Session()
+            
+            # Get resource details from Resource Explorer
+            resource_info = get_resource_info(session.client("config"), resource_id)
+            resource_type = resource_info["resourceType"]
+            # Skip if resource has no ARN (not taggable)
+
+            if not resource_info or not resource_info.get("arn"):
+                return {
+                    'statusCode': 200,
+                    'message': f"Skipping {resource_id} - resource is not taggable (no ARN found)"
+                }
+            
+            arn = resource_info["arn"]
+            
+            print(f"Resource details - Type: {resource_type}, ARN: {arn}")
+            
+            # Get required tags for this account from DynamoDB
+            required_tag_map = get_account_tags(account_id, ddb_table_arn, account_id_key)
+            print(f"Required tags for account {account_id}: {required_tag_map}")
+            
+            # Create tagging client
+            tagging_client = session.client("resourcegroupstaggingapi")
+            
+            # Get current tags and determine what needs to be remediated (missing or incorrect values)
+            tags_to_apply = get_tags_to_remediate(tagging_client, arn, required_tag_map)
+            print(f"Tags to apply: {tags_to_apply}")
+            
+            if not tags_to_apply:
+                return {
+                    'statusCode': 200,
+                    'message': f"No tags to remediate for {resource_id} - all required tags present with correct values"
+                }
+            
+            # Apply the tags (missing or with incorrect values)
+            apply_tags(tagging_client, arn, tags_to_apply)
+            
+            return {
+                'statusCode': 200,
+                'message': f"Applied {len(tags_to_apply)} tags to {arn}",
+                'applied_tags': tags_to_apply
+            }
+        def get_resource_info(config_client, resource_id):
+            """Query Config to find resource details by ID"""
+            query = f"SELECT resourceType, resourceId, accountId, arn WHERE resourceId = '{resource_id}'"
+            
+            print(f"Config query: {query}")
+            
+            response = config_client.select_resource_config(Expression=query)
+            
+            print(f"Config query results: {response.get('Results', [])}")
+            
+            if not response.get("Results"):
+                raise Exception(f"Resource {resource_id} not found in AWS Config")
+            
+            result = json.loads(response["Results"][0])
+            print(result)
+            return result
+           
+       
+        def get_account_tags(account_id, table_arn, account_id_key):
+            """Get the required tags (key-value pairs) from DynamoDB"""
+            print(f"Fetching tags from DynamoDB - Table ARN: {table_arn}, Key: {account_id_key}, Account: {account_id}")
+            
+            
+            dynamodb = boto3.resource("dynamodb")
+            table = dynamodb.Table(table_arn)
+            
+            try:
+                resp = table.get_item(Key={account_id_key: account_id})
+                item = resp.get("Item")
+            except Exception as e:
+                print(f"Error querying DynamoDB: {str(e)}")
+                raise
+            
+            if not item:
+                raise Exception(f"No DynamoDB entry for account {account_id}")
+            
+            tags = item.get("tags")
+            
+            if not tags:
+                raise Exception(f"No 'tags' attribute found in DynamoDB for account {account_id}")
+            
+            # If tags is stored as a JSON string, parse it
+            if isinstance(tags, str):
+                tags = json.loads(tags)
+            
+            return tags
+        
+        def get_tags_to_remediate(tagging_client, arn, required_tag_map):
+            """Get current tags from resource and determine what needs to be remediated (missing or incorrect values)"""
+            try:
+                response = tagging_client.get_resources(
+                    ResourceARNList=[arn]
+                )
+                
+                # Build current tags dict from response
+                current_tags = {}
+                if response.get('ResourceTagMappingList'):
+                    current_tags = {
+                        tag['Key']: tag['Value']
+                        for tag in response['ResourceTagMappingList'][0].get('Tags', [])
+                    }
+                
+                # Determine which tags need remediation
+                tags_to_apply = {}
+                for tag_key, required_value in required_tag_map.items():
+                    current_value = current_tags.get(tag_key)
+                    
+                    # Tag is missing or has incorrect value
+                    if current_value is None or current_value != required_value:
+                        tags_to_apply[tag_key] = required_value
+                        if current_value is None:
+                            print(f"Tag '{tag_key}' is missing (required: '{required_value}')")
+                        else:
+                            print(f"Tag '{tag_key}' has incorrect value '{current_value}' (required: '{required_value}')")
+                
+                return tags_to_apply
+                
+            except Exception as e:
+                print(f"Error getting current tags: {e}")
+                # On error, assume all tags need to be applied to be safe
+                return required_tag_map
+        
+        def apply_tags(tagging_client, resource_arn, tags):
+            """Apply tags to resource"""
+            try:
+                response = tagging_client.tag_resources(ResourceARNList=[resource_arn], Tags=tags)
+                # Check if there were any failures
+                if response.get('FailedResourcesMap'):
+                    failed_resources = response['FailedResourcesMap']
+                    for arn, error_info in failed_resources.items():
+                        error_msg = (
+                            f"Failed to tag resource {arn}: "
+                            f"[{error_info['ErrorCode']}] {error_info['ErrorMessage']}"
+                        )
+                        print(error_msg)
+                        raise Exception(error_msg)
+                print(f"Successfully applied {len(tags)} tags")
+            
+            except Exception as e:
+                print(f"Error applying tags: {e}")
+                raise
+    outputs:
+      - Name: result
+        Selector: $.Payload
+        Type: StringMap
+    timeoutSeconds: 300

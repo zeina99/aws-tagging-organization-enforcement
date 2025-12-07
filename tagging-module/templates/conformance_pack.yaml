@@ -1,0 +1,186 @@
+Resources:
+  TagComplianceRule:
+    Type: "AWS::Config::ConfigRule"
+    Properties:
+      ConfigRuleName: "${config_rule_name}"
+      Description: "Evaluates if resources have required tags"
+      Scope:
+        ComplianceResourceTypes:
+          # EC2 Compute
+          - "AWS::EC2::Instance"
+          - "AWS::EC2::LaunchTemplate"
+          - "AWS::EC2::SpotFleet"
+          - "AWS::EC2::Host"
+          - "AWS::EC2::CapacityReservation"
+
+          # EC2 Images & Storage
+          - "AWS::EC2::Volume"
+          - "AWS::EC2::Snapshot"
+
+          # VPC Core
+          - "AWS::EC2::VPC"
+          - "AWS::EC2::Subnet"
+          - "AWS::EC2::RouteTable"
+          - "AWS::EC2::InternetGateway"
+          - "AWS::EC2::EgressOnlyInternetGateway"
+
+          # VPC Connectivity
+          - "AWS::EC2::VPCEndpoint"
+          - "AWS::EC2::VPCPeeringConnection"
+          - "AWS::EC2::TransitGateway"
+          - "AWS::EC2::VPNConnection"
+          - "AWS::EC2::VPNGateway"
+          
+          # VPC Networking
+          - "AWS::EC2::NetworkInterface"
+          - "AWS::EC2::EIP"
+          - "AWS::EC2::NATGateway"
+          - "AWS::EC2::SecurityGroup"
+          - "AWS::EC2::FlowLog"
+
+          # Load Balancers
+          - "AWS::ElasticLoadBalancingV2::LoadBalancer"
+          - "AWS::ElasticLoadBalancingV2::TargetGroup"
+          - "AWS::ElasticLoadBalancing::LoadBalancer"
+
+          # Auto Scaling
+          - "AWS::AutoScaling::AutoScalingGroup"
+
+          # CloudFormation
+          - "AWS::CloudFormation::Stack"
+
+          # Secrets Manager
+          - "AWS::SecretsManager::Secret"
+
+          # Systems Manager
+          - "AWS::SSM::Document"
+          - "AWS::SSM::Parameter"
+
+          # S3
+          - "AWS::S3::Bucket"
+
+          # RDS
+          - "AWS::RDS::DBInstance"
+          - "AWS::RDS::DBCluster"
+          - "AWS::RDS::DBSnapshot"
+          - "AWS::RDS::DBClusterSnapshot"
+
+          # Lambda
+          - "AWS::Lambda::Function"
+
+          # DynamoDB
+          - "AWS::DynamoDB::Table"
+
+          # ECS
+          - "AWS::ECS::Cluster"
+          - "AWS::ECS::Service"
+          - "AWS::ECS::TaskDefinition"
+
+          # EKS
+          - "AWS::EKS::Cluster"
+
+          # SNS
+          - "AWS::SNS::Topic"
+
+          # SQS
+          - "AWS::SQS::Queue"
+
+          # CloudWatch Logs
+          - "AWS::Logs::LogGroup"
+
+          # CloudTrail
+          - "AWS::CloudTrail::Trail"
+
+          # IAM
+          - "AWS::IAM::Role"
+          - "AWS::IAM::User"
+          - "AWS::IAM::Group"
+          - "AWS::IAM::Policy"
+
+          # ECR
+          - "AWS::ECR::Repository"
+
+          # EFS
+          - "AWS::EFS::FileSystem"
+
+          # ElastiCache
+          - "AWS::ElastiCache::CacheCluster"
+
+          # Redshift
+          - "AWS::Redshift::Cluster"
+
+          # Kinesis
+          - "AWS::Kinesis::Stream"
+
+          # Firehose
+          - "AWS::KinesisFirehose::DeliveryStream"
+
+          # API Gateway
+          - "AWS::ApiGateway::RestApi"
+          - "AWS::ApiGatewayV2::Api"
+
+          # Step Functions
+          - "AWS::StepFunctions::StateMachine"
+
+          # EventBridge
+          - "AWS::Events::Rule"
+
+          # Backup
+          - "AWS::Backup::BackupPlan"
+          - "AWS::Backup::BackupVault"
+
+          # Glue
+          - "AWS::Glue::Job"
+
+
+          # CodeBuild
+          - "AWS::CodeBuild::Project"
+
+          # CodePipeline
+          - "AWS::CodePipeline::Pipeline"
+
+          # ACM
+          - "AWS::ACM::Certificate"
+
+          # Route53
+          - "AWS::Route53::HostedZone"
+
+          # WorkSpaces
+          - "AWS::WorkSpaces::Workspace"
+
+          # Organizations
+          - "AWS::Organizations::Organization"
+      Source:
+        Owner: "CUSTOM_LAMBDA"
+        SourceIdentifier: "${lambda_evaluator_arn}"
+        SourceDetails:
+          - EventSource: "aws.config"
+            MessageType: "ConfigurationItemChangeNotification"
+          - EventSource: "aws.config"
+            MessageType: "OversizedConfigurationItemChangeNotification"
+          - EventSource: "aws.config"
+            MessageType: "ScheduledNotification"
+            MaximumExecutionFrequency: "TwentyFour_Hours"
+
+  TagRemediation:
+    Type: "AWS::Config::RemediationConfiguration"
+    Properties:
+      ConfigRuleName: "${config_rule_name}"
+      TargetType: "SSM_DOCUMENT"
+      TargetId: "${ssm_document_arn}"
+      Automatic: ${enable_automatic_remediation}
+      MaximumAutomaticAttempts: ${max_automatic_attempts}
+      RetryAttemptSeconds: ${retry_attempt_seconds}
+      Parameters:
+        AutomationAssumeRole:
+          StaticValue:
+            Values: ["arn:aws:iam::${audit_account_id}:role/ConfigRemediationRole"]
+        ResourceId:
+          ResourceValue:
+            Value: "RESOURCE_ID"
+        DynamoDBTableArn:
+          StaticValue:
+            Values: ["${dynamodb_table_arn}"]
+        AccountIdKey:
+          StaticValue:
+            Values: ["${account_id_key}"]
