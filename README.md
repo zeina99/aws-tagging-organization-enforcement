@@ -149,6 +149,56 @@ After Terraform deployment, deploy the CloudFormation StackSet that creates the 
    - **Accounts**: Select the accounts or OUs where you want to deploy the stack instances
 7. **Review and create** the StackSet
 
+## Supported Resources
+
+This solution evaluates and can remediate tags for the following AWS resource types:
+
+| Category | Service | Resource Types |
+|----------|---------|----------------|
+| **Compute & Containers** | EC2 | Instances, Launch Templates, Spot Fleets, Hosts, Capacity Reservations |
+| | ECS | Clusters, Services, Task Definitions |
+| | EKS | Clusters |
+| | Lambda | Functions |
+| **Storage** | EC2 | Volumes, Snapshots |
+| | S3 | Buckets, Objects |
+| | EFS | File Systems |
+| **Networking & Content Delivery** | VPC | VPCs, Subnets, Route Tables, Internet Gateways, Egress-Only Internet Gateways |
+| | VPC Connectivity | VPC Endpoints, VPC Peering Connections, Transit Gateways, VPN Connections, VPN Gateways |
+| | Networking | Network Interfaces, Elastic IPs, NAT Gateways, Security Groups, Flow Logs |
+| | Load Balancing | Application Load Balancers, Network Load Balancers, Classic Load Balancers, Target Groups |
+| | Route53 | Hosted Zones |
+| **Databases** | RDS | DB Instances, DB Clusters, DB Snapshots, DB Cluster Snapshots |
+| | DynamoDB | Tables |
+| | ElastiCache | Cache Clusters |
+| | Redshift | Clusters |
+| **Messaging & Integration** | SNS | Topics |
+| | SQS | Queues |
+| | EventBridge | Rules |
+| | Step Functions | State Machines |
+| | API Gateway | REST APIs, HTTP APIs |
+| **Security, Identity & Compliance** | IAM | Roles, Users, Groups, Policies |
+| | Secrets Manager | Secrets |
+| | CloudTrail | Trails |
+| | ACM | Certificates |
+| **Management & Governance** | CloudFormation | Stacks |
+| | Systems Manager | Documents, Parameters |
+| | CloudWatch | Log Groups |
+| | Backup | Backup Plans, Backup Vaults |
+| | Organizations | Organizations |
+| **Analytics & Big Data** | Kinesis | Streams |
+| | Kinesis Firehose | Delivery Streams |
+| | Glue | Jobs |
+| **Developer Tools** | CodeBuild | Projects |
+| | CodePipeline | Pipelines |
+| | ECR | Repositories |
+| **Desktop & App Streaming** | WorkSpaces | Workspaces |
+| **Auto Scaling** | Auto Scaling | Auto Scaling Groups |
+
+> **Note**: The solution uses AWS Config to evaluate resources and the Resource Groups Tagging API for remediation. Resources must be:
+> 1. Supported by AWS Config (monitored resource types)
+> 2. Tagged via the Resource Groups Tagging API or service-specific tagging APIs
+> 3. Have an ARN (resources without ARNs are skipped)
+
 ## Configuration
 
 ### Required Tags Format
