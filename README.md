@@ -199,6 +199,66 @@ This solution evaluates and can remediate tags for the following AWS resource ty
 > 2. Tagged via the Resource Groups Tagging API or service-specific tagging APIs
 > 3. Have an ARN (resources without ARNs are skipped)
 
+### Adding Support for New Resources
+
+To add support for additional AWS resource types, you need to modify two files:
+
+#### 1. Update Conformance Pack Template
+
+Add the new resource type to the `ComplianceResourceTypes` list in `tagging-module/templates/conformance_pack.yaml`:
+
+```yaml
+Resources:
+  TagComplianceRule:
+    Type: "AWS::Config::ConfigRule"
+    Properties:
+      Scope:
+        ComplianceResourceTypes:
+          # ... existing resource types ...
+          - "AWS::NewService::ResourceType"  # Add your new resource type here
+```
+
+**Resource Type Format**: Use the AWS Config resource type format: `AWS::ServiceName::ResourceType`
+
+**Finding Resource Types**: 
+- Check [AWS Config Supported Resource Types](https://docs.aws.amazon.com/config/latest/developerguide/resource-config-reference.html)
+
+#### 2. Update IAM Role Permissions
+
+Add the appropriate tagging permissions to the `ConfigRemediationRole` in `config-roles.yaml`:
+
+
+
+
+Add a new policy statement in the `tagging-access` policy:
+
+```yaml
+- Sid: NewServiceTaggingPermissions
+  Effect: Allow
+  Action:
+    - 'newservice:TagResource'          # Service-specific tagging action
+    - 'newservice:ListTagsForResource' # List tags action
+    - 'newservice:DescribeResource'    # Describe action (if needed)
+  Resource: '*'
+```
+
+
+**After Making Changes**:
+
+1. **Update Terraform**: 
+   ```bash
+   terraform plan  # Review changes
+   terraform apply # Apply conformance pack updates
+   ```
+
+2. **Update CloudFormation StackSet with new template**
+
+
+
+**Important Considerations**:
+- Ensure the resource type is supported by AWS Config
+- Verify the resource has an ARN (required for tagging)
+
 ## Configuration
 
 ### Required Tags Format
@@ -233,7 +293,6 @@ The solution can automatically remediate non-compliant resources:
 - **Max Attempts**: Configure `max_automatic_attempts` (default: 3)
 - **Retry Delay**: Configure `retry_attempt_seconds` (default: 60)
 
-**⚠️ Warning**: Enable automatic remediation only after thorough testing. It will modify resources automatically.
 
 ## How It Works
 
