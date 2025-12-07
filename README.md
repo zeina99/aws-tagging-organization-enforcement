@@ -59,7 +59,6 @@ required_tags = {
     ProjectName  = "CloudTrail"
     ProjectOwner = "Cloud Team"
     ManagedBy    = "Terraform"
-    CostCenter   = "6075"
   }
   # Add more accounts as needed
 }
@@ -172,7 +171,6 @@ required_tags = {
     ProjectName  = "TestProject"
     ProjectOwner = "Team B"
     ManagedBy    = "Terraform"
-    CostCenter   = "1234"
   }
 }
 ```
@@ -220,7 +218,6 @@ Example DynamoDB item:
     "ProjectName": "CloudTrail",
     "ProjectOwner": "Cloud Team",
     "ManagedBy": "Terraform",
-    "CostCenter": "6075"
   }
 }
 ```
