@@ -1,6 +1,6 @@
 ---
 schemaVersion: '0.3'
-description: "Remediate missing tags and tags with incorrect values by executing Python script directly"
+description: "Remediate missing tags by executing Python script directly"
 
 parameters:
   AutomationAssumeRole:
@@ -65,22 +65,28 @@ mainSteps:
             
             # Get required tags for this account from DynamoDB
             required_tag_map = get_account_tags(account_id, ddb_table_arn, account_id_key)
-            print(f"Required tags for account {account_id}: {required_tag_map}")
+            required_tag_keys = list(required_tag_map.keys())
+            print(f"Required tags for account {account_id}: {required_tag_keys}")
             
             # Create tagging client
             tagging_client = session.client("resourcegroupstaggingapi")
             
-            # Get current tags and determine what needs to be remediated (missing or incorrect values)
-            tags_to_apply = get_tags_to_remediate(tagging_client, arn, required_tag_map)
-            print(f"Tags to apply: {tags_to_apply}")
+            # Get current tags and determine what's missing or incorrect
+            missing_keys, incorrect_keys = get_tag_differences(tagging_client, arn, required_tag_map)
+            print(f"Missing tags: {missing_keys}")
+            print(f"Incorrect tags: {incorrect_keys}")
             
-            if not tags_to_apply:
+            if not missing_keys and not incorrect_keys:
                 return {
                     'statusCode': 200,
                     'message': f"No tags to remediate for {resource_id} - all required tags present with correct values"
                 }
             
-            # Apply the tags (missing or with incorrect values)
+            # Build tag dict with missing and incorrect tags
+            tags_to_apply = {key: required_tag_map[key] for key in set(missing_keys + incorrect_keys)}
+            print(f"Tags to apply: {tags_to_apply}")
+            
+            # Apply the missing tags
             apply_tags(tagging_client, arn, tags_to_apply)
             
             return {
@@ -104,8 +110,8 @@ mainSteps:
             result = json.loads(response["Results"][0])
             print(result)
             return result
-           
-       
+            
+        
         def get_account_tags(account_id, table_arn, account_id_key):
             """Get the required tags (key-value pairs) from DynamoDB"""
             print(f"Fetching tags from DynamoDB - Table ARN: {table_arn}, Key: {account_id_key}, Account: {account_id}")
@@ -135,40 +141,37 @@ mainSteps:
             
             return tags
         
-        def get_tags_to_remediate(tagging_client, arn, required_tag_map):
-            """Get current tags from resource and determine what needs to be remediated (missing or incorrect values)"""
+        def get_tag_differences(tagging_client, arn, required_tag_map):
+            """Get current tags from resource and determine what's missing or incorrect"""
             try:
                 response = tagging_client.get_resources(
                     ResourceARNList=[arn]
                 )
                 
-                # Build current tags dict from response
-                current_tags = {}
-                if response.get('ResourceTagMappingList'):
-                    current_tags = {
-                        tag['Key']: tag['Value']
-                        for tag in response['ResourceTagMappingList'][0].get('Tags', [])
-                    }
+                if not response.get('ResourceTagMappingList'):
+                    # Resource not found or no tags - all required tags are missing
+                    return list(required_tag_map.keys()), []
                 
-                # Determine which tags need remediation
-                tags_to_apply = {}
-                for tag_key, required_value in required_tag_map.items():
-                    current_value = current_tags.get(tag_key)
-                    
-                    # Tag is missing or has incorrect value
-                    if current_value is None or current_value != required_value:
-                        tags_to_apply[tag_key] = required_value
-                        if current_value is None:
-                            print(f"Tag '{tag_key}' is missing (required: '{required_value}')")
-                        else:
-                            print(f"Tag '{tag_key}' has incorrect value '{current_value}' (required: '{required_value}')")
+                current_tags = {
+                    tag['Key']: tag.get('Value')
+                    for tag in response['ResourceTagMappingList'][0].get('Tags', [])
+                }
                 
-                return tags_to_apply
+                missing = []
+                incorrect = []
+                
+                for key, expected_value in required_tag_map.items():
+                    if key not in current_tags:
+                        missing.append(key)
+                    elif current_tags[key] != expected_value:
+                        incorrect.append(key)
+                
+                return missing, incorrect
                 
             except Exception as e:
                 print(f"Error getting current tags: {e}")
-                # On error, assume all tags need to be applied to be safe
-                return required_tag_map
+                # On error, assume all tags are missing to be safe
+                return list(required_tag_map.keys()), list(required_tag_map.keys())
         
         def apply_tags(tagging_client, resource_arn, tags):
             """Apply tags to resource"""
